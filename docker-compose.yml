@@ -1,0 +1,103 @@
+services:
+  vllm:
+    image: ${VLLM_IMAGE:-rocm/vllm:rocm7.0.0_vllm_0.11.2_20251210}
+    container_name: vllm-server
+    restart: unless-stopped
+    command: ["/usr/local/bin/custom_entrypoint.sh"]
+    
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      - ./entrypoint.sh:/usr/local/bin/custom_entrypoint.sh
+      - ./patch_gfx1201.py:/patch_gfx1201.py
+    
+    # Required for ROCm GPU access
+    privileged: true
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+      - render
+    
+    # Environment variables
+    environment:
+      # Model configuration
+      - MODEL=${MODEL:-Qwen/Qwen2.5-14B-Instruct-AWQ}
+      - PORT=${PORT:-9500}
+      - QUANTIZATION=${QUANTIZATION:-awq}
+      - DTYPE=${DTYPE:-auto}
+      
+      # vLLM performance settings
+      - GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.55}
+      - MAX_NUM_SEQS=${MAX_NUM_SEQS:-64}
+      - MAX_NUM_BATCHED_TOKENS=${MAX_NUM_BATCHED_TOKENS:-2048}
+      - MAX_MODEL_LEN=${MAX_MODEL_LEN:-8192}
+      - PYTORCH_ALLOC_CONF=${PYTORCH_ALLOC_CONF:-expandable_segments:True}
+      
+      # ROCm/gfx1201 configuration
+      - IS_GFX1201=${IS_GFX1201:-1}
+      - PYTHON_PATCH_SCRIPT=${PYTHON_PATCH_SCRIPT:-/patch_gfx1201.py}
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-12.0.1}
+      - GPU_ARCHS=${GPU_ARCHS:-gfx1201}
+      - HSA_ENABLE_SDMA=${HSA_ENABLE_SDMA:-0}
+      - HIP_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES:-0}
+      
+      # ROCm stability settings
+      - NCCL_P2P_DISABLE=${NCCL_P2P_DISABLE:-1}
+      - NCCL_IB_DISABLE=${NCCL_IB_DISABLE:-1}
+      - VLLM_ROCM_USE_AITER=${VLLM_ROCM_USE_AITER:-0}
+      - VLLM_ROCM_CUSTOM_PAGED_ATTN=${VLLM_ROCM_CUSTOM_PAGED_ATTN:-0}
+      - VLLM_USE_TRITON_AWQ=${VLLM_USE_TRITON_AWQ}
+      
+      # vLLM engine configuration
+      - VLLM_ENABLE_V1_MULTIPROCESSING=${VLLM_ENABLE_V1_MULTIPROCESSING:-0}
+      - VLLM_USE_V1=${VLLM_USE_V1:-0}
+      - VLLM_ATTENTION_BACKEND=${VLLM_ATTENTION_BACKEND:-ROCM_ATTN}
+      - VLLM_DISTRIBUTED_EXECUTOR_BACKEND=${VLLM_DISTRIBUTED_EXECUTOR_BACKEND:-uni}
+      
+      # Optional: Hugging Face token for private models
+      - HF_TOKEN=${HF_TOKEN:-}
+    
+    ports:
+      - "${PORT}:${PORT}"
+    
+    # Performance optimizations
+    shm_size: 4g
+    ipc: host
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.4.5
+    container_name: open-webui
+    restart: unless-stopped
+    
+    ports:
+      - "3001:8080"
+    
+    environment:
+      - OPENAI_API_BASE_URL=http://vllm:${PORT}/v1
+      - OPENAI_API_KEY=unused-key
+    
+    volumes:
+      - open-webui-data:/app/backend/data
+    
+    depends_on:
+      vllm:
+        condition: service_started
+    
+    # Only start with --profile ui flag
+    profiles:
+      - ui
+
+volumes:
+  open-webui-data:
