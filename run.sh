@@ -1,33 +1,16 @@
 #!/bin/bash
 set -e
 
-# User-configurable variables (set via command-line arguments)
-MODEL=""
-PORT=""
-QUANTIZATION=""
-DTYPE=""
-GPU_MEMORY=""
-MAX_MODEL_LEN_ARG=""
-ARCHITECTURE=""
-MULTI_GPU=0
-LAUNCH_UI=0
+# Load defaults from template
+if [ -f ".env-template" ]; then
+    set -a
+    source .env-template
+    set +a
+else
+    echo "⚠️  Warning: .env-template not found. Using script hardcoded defaults as fallback."
+fi
 
-# ROCm stability constants (hardcoded for reliability)
-readonly HSA_ENABLE_SDMA_VAL=0
-readonly NCCL_P2P_DISABLE_VAL=1
-readonly NCCL_IB_DISABLE_VAL=1
-readonly VLLM_ROCM_USE_AITER_VAL=0
-readonly VLLM_ROCM_CUSTOM_PAGED_ATTN_VAL=0
-readonly VLLM_ENABLE_V1_MULTIPROCESSING_VAL=0
-readonly VLLM_USE_V1_VAL=0
-readonly HIP_FORCE_DEV_KERNARG_VAL=1
-readonly VLLM_ATTENTION_BACKEND_VAL="ROCM_ATTN"
-readonly VLLM_DISTRIBUTED_EXECUTOR_BACKEND_VAL="uni"
-readonly PYTORCH_ALLOC_CONF_VAL="expandable_segments:True"
-readonly MAX_NUM_SEQS_VAL=64
-readonly MAX_NUM_BATCHED_TOKENS_VAL=2048
-
-# Argument parsing
+# Argument parsing logic
 show_help() {
     cat <<EOF
 Usage: $0 [OPTIONS] [model_name]
@@ -35,12 +18,12 @@ Usage: $0 [OPTIONS] [model_name]
 ROCm-optimized vLLM server launcher for AMD GPUs
 
 OPTIONS:
-  --model MODEL           Hugging Face model ID or path
-  --port PORT             Port to serve on (default: 9500)
-  --quantization TYPE     Quantization: awq, gptq, none, or auto (default: auto)
-  --dtype TYPE            Model dtype: auto, float16, bfloat16 (default: auto)
-  --gpu-memory FRACTION   GPU memory utilization 0.0-1.0 (default: 0.55)
-  --max-model-len LENGTH  Maximum context length (default: 8192)
+  --model MODEL           Hugging Face model ID or path (Current: $MODEL)
+  --port PORT             Port to serve on (Current: $PORT)
+  --quantization TYPE     Quantization: awq, gptq, none, or auto (Current: $QUANTIZATION)
+  --dtype TYPE            Model dtype: auto, float16, bfloat16 (Current: $DTYPE)
+  --gpu-memory FRACTION   GPU memory utilization 0.0-1.0 (Current: $GPU_MEMORY_UTILIZATION)
+  --max-model-len LENGTH  Maximum context length (Current: $MAX_MODEL_LEN)
   --architecture ARCH     GPU architecture preset (default: gfx1201)
                           Options: gfx1201, gfx1100, gfx1030, gfx90a
   --multi-gpu             Enable multi-GPU support (uses all available GPUs)
@@ -64,6 +47,12 @@ EXAMPLES:
 EOF
 }
 
+# Variable tracking for architecture logic
+ARCHITECTURE="gfx1201" # Default architecture logic driver
+MULTI_GPU=0
+LAUNCH_UI=0
+MODEL_ARG_SET=""
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --model)
@@ -83,11 +72,11 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --gpu-memory)
-            GPU_MEMORY="$2"
+            GPU_MEMORY_UTILIZATION="$2"
             shift 2
             ;;
         --max-model-len)
-            MAX_MODEL_LEN_ARG="$2"
+            MAX_MODEL_LEN="$2"
             shift 2
             ;;
         --architecture)
@@ -107,8 +96,13 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            if [ -z "$MODEL" ]; then
+            if [ "${1:0:2}" == "--" ]; then 
+                echo "❌ Unknown argument: $1"
+                show_help
+                exit 1
+            elif [ -z "$MODEL_ARG_SET" ]; then # Heuristic: First non-flag is model
                 MODEL="$1"
+                MODEL_ARG_SET=1
             else
                 echo "❌ Unknown argument: $1"
                 show_help
@@ -119,15 +113,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Apply defaults
-MODEL="${MODEL:-Qwen/Qwen2.5-14B-Instruct-AWQ}"
-PORT="${PORT:-9500}"
-DTYPE="${DTYPE:-auto}"
-ARCHITECTURE="${ARCHITECTURE:-gfx1201}"
-GPU_MEMORY="${GPU_MEMORY:-0.55}"
-MAX_MODEL_LEN_ARG="${MAX_MODEL_LEN_ARG:-8192}"
-
-# Auto-detect quantization from model name if not specified
+# Auto-detect quantization from model name if not specified or auto
 if [ -z "$QUANTIZATION" ] || [ "$QUANTIZATION" = "auto" ]; then
     if [[ "$MODEL" =~ -AWQ ]]; then
         QUANTIZATION="awq"
@@ -144,39 +130,11 @@ if [ -z "$QUANTIZATION" ] || [ "$QUANTIZATION" = "auto" ]; then
     fi
 fi
 
-# Warn if model name and quantization seem mismatched
-if [ "$QUANTIZATION" = "awq" ] && [[ ! "$MODEL" =~ -AWQ ]] && [[ ! "$MODEL" =~ -[Qq]uant ]]; then
-    echo "⚠️  Warning: Using AWQ quantization but model name doesn't contain '-AWQ'"
-    echo "   Model: $MODEL"
-    echo "   This may cause loading errors if the model is not actually AWQ-quantized"
-fi
-
-if [ "$QUANTIZATION" = "gptq" ] && [[ ! "$MODEL" =~ -GPTQ ]]; then
-    echo "⚠️  Warning: Using GPTQ quantization but model name doesn't contain '-GPTQ'"
-    echo "   Model: $MODEL"
-    echo "   This may cause loading errors if the model is not actually GPTQ-quantized"
-fi
-
-if [ "$QUANTIZATION" = "none" ] && [[ "$MODEL" =~ -AWQ|-GPTQ|-[Qq]uant ]]; then
-    echo "⚠️  Warning: Model name suggests quantization but --quantization is set to 'none'"
-    echo "   Model: $MODEL"
-    echo "   Consider using --quantization auto or specifying the correct type"
-fi
-
-# Export configuration (no environment variable fallbacks)
-export MODEL
-export PORT
-export QUANTIZATION
-export DTYPE
-export GPU_MEMORY_UTILIZATION="$GPU_MEMORY"
-export MAX_NUM_SEQS="$MAX_NUM_SEQS_VAL"
-export MAX_NUM_BATCHED_TOKENS="$MAX_NUM_BATCHED_TOKENS_VAL"
-export MAX_MODEL_LEN="$MAX_MODEL_LEN_ARG"
-export PYTORCH_ALLOC_CONF="$PYTORCH_ALLOC_CONF_VAL"
-
 # Enable Triton AWQ optimization for ROCm when using AWQ quantization
 if [ "$QUANTIZATION" = "awq" ]; then
-    export VLLM_USE_TRITON_AWQ=1
+    VLLM_USE_TRITON_AWQ=1
+else
+    VLLM_USE_TRITON_AWQ=0
 fi
 
 # Validate AMD GPU availability
@@ -190,27 +148,27 @@ fi
 case "$ARCHITECTURE" in
     gfx1201)
         echo "🔧 Configuring for RDNA 4 (gfx1201) - Radeon AI PRO R9700"
-        export IS_GFX1201=1
-        export HSA_OVERRIDE_GFX_VERSION="12.0.1"
-        export GPU_ARCHS="gfx1201"
+        IS_GFX1201=1
+        HSA_OVERRIDE_GFX_VERSION="12.0.1"
+        GPU_ARCHS="gfx1201"
         ;;
     gfx1100)
         echo "🔧 Configuring for RDNA 3 (gfx1100) - RX 7000 series"
-        export IS_GFX1201=0
-        export HSA_OVERRIDE_GFX_VERSION="11.0.0"
-        export GPU_ARCHS="gfx1100"
+        IS_GFX1201=0
+        HSA_OVERRIDE_GFX_VERSION="11.0.0"
+        GPU_ARCHS="gfx1100"
         ;;
     gfx1030)
         echo "🔧 Configuring for RDNA 2 (gfx1030) - RX 6000 series"
-        export IS_GFX1201=0
-        export HSA_OVERRIDE_GFX_VERSION="10.3.0"
-        export GPU_ARCHS="gfx1030"
+        IS_GFX1201=0
+        HSA_OVERRIDE_GFX_VERSION="10.3.0"
+        GPU_ARCHS="gfx1030"
         ;;
     gfx90a)
         echo "🔧 Configuring for CDNA 2 (gfx90a) - MI200 series"
-        export IS_GFX1201=0
-        export HSA_OVERRIDE_GFX_VERSION="9.0.10"
-        export GPU_ARCHS="gfx90a"
+        IS_GFX1201=0
+        HSA_OVERRIDE_GFX_VERSION="9.0.10"
+        GPU_ARCHS="gfx90a"
         ;;
     *)
         echo "❌ Error: Unknown architecture '$ARCHITECTURE'"
@@ -222,29 +180,12 @@ esac
 # Multi-GPU configuration
 if [ "$MULTI_GPU" = "1" ]; then
     echo "🔧 Enabling multi-GPU support"
-    export HIP_VISIBLE_DEVICES=""  # Use all GPUs
+    HIP_VISIBLE_DEVICES=""  # Use all GPUs
 else
-    export HIP_VISIBLE_DEVICES=0   # Use first GPU only
+    HIP_VISIBLE_DEVICES=0   # Use first GPU only
 fi
 
-# Core ROCm environment variables
-export VLLM_ATTENTION_BACKEND="$VLLM_ATTENTION_BACKEND_VAL"
-export VLLM_DISTRIBUTED_EXECUTOR_BACKEND="$VLLM_DISTRIBUTED_EXECUTOR_BACKEND_VAL"
-
-# ROCm stability settings
-export HSA_ENABLE_SDMA="$HSA_ENABLE_SDMA_VAL"
-export NCCL_P2P_DISABLE="$NCCL_P2P_DISABLE_VAL"
-export NCCL_IB_DISABLE="$NCCL_IB_DISABLE_VAL"
-export VLLM_ROCM_USE_AITER="$VLLM_ROCM_USE_AITER_VAL"
-export VLLM_ROCM_CUSTOM_PAGED_ATTN="$VLLM_ROCM_CUSTOM_PAGED_ATTN_VAL"
-export VLLM_ENABLE_V1_MULTIPROCESSING="$VLLM_ENABLE_V1_MULTIPROCESSING_VAL"
-export VLLM_USE_V1="$VLLM_USE_V1_VAL"
-export HIP_FORCE_DEV_KERNARG="$HIP_FORCE_DEV_KERNARG_VAL"
-
-# gfx1201 patch script (mounted into container)
-export PYTHON_PATCH_SCRIPT="/patch_gfx1201.py"
-
-# Display configuration
+# Display configuration (Logging)
 echo ""
 echo "🚀 vLLM ROCm Server Launcher"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -258,6 +199,56 @@ echo "UI Enabled:    $([ $LAUNCH_UI -eq 1 ] && echo 'Yes' || echo 'No')"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
+# Generate .env file with merged configuration
+echo "📝 Generating .env file..."
+cat > .env <<EOF
+# Generated by run.sh on $(date)
+# DO NOT EDIT THIS FILE DIRECTLY. Edit .env-template or pass arguments to run.sh
+
+# Container Images
+VLLM_IMAGE=$VLLM_IMAGE
+OPEN_WEBUI_IMAGE=$OPEN_WEBUI_IMAGE
+
+# Model Configuration
+MODEL=$MODEL
+PORT=$PORT
+QUANTIZATION=$QUANTIZATION
+DTYPE=$DTYPE
+MAX_MODEL_LEN=$MAX_MODEL_LEN
+
+# vLLM Performance
+GPU_MEMORY_UTILIZATION=$GPU_MEMORY_UTILIZATION
+MAX_NUM_SEQS=$MAX_NUM_SEQS
+MAX_NUM_BATCHED_TOKENS=$MAX_NUM_BATCHED_TOKENS
+PYTORCH_ALLOC_CONF=$PYTORCH_ALLOC_CONF
+
+# ROCm / Architecture
+IS_GFX1201=$IS_GFX1201
+HSA_OVERRIDE_GFX_VERSION=$HSA_OVERRIDE_GFX_VERSION
+GPU_ARCHS=$GPU_ARCHS
+HSA_ENABLE_SDMA=$HSA_ENABLE_SDMA
+NCCL_P2P_DISABLE=$NCCL_P2P_DISABLE
+NCCL_IB_DISABLE=$NCCL_IB_DISABLE
+VLLM_ROCM_USE_AITER=$VLLM_ROCM_USE_AITER
+VLLM_ROCM_CUSTOM_PAGED_ATTN=$VLLM_ROCM_CUSTOM_PAGED_ATTN
+HIP_FORCE_DEV_KERNARG=$HIP_FORCE_DEV_KERNARG
+
+# vLLM Engine
+VLLM_ENABLE_V1_MULTIPROCESSING=$VLLM_ENABLE_V1_MULTIPROCESSING
+VLLM_USE_V1=$VLLM_USE_V1
+VLLM_ATTENTION_BACKEND=$VLLM_ATTENTION_BACKEND
+VLLM_DISTRIBUTED_EXECUTOR_BACKEND=$VLLM_DISTRIBUTED_EXECUTOR_BACKEND
+VLLM_USE_TRITON_AWQ=$VLLM_USE_TRITON_AWQ
+PYTHON_PATCH_SCRIPT=$PYTHON_PATCH_SCRIPT
+
+# Hardware
+HIP_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
+
+# Secrets
+HF_TOKEN=$HF_TOKEN
+OPENAI_API_KEY=$OPENAI_API_KEY
+EOF
+
 # Docker Compose profile options
 if [ "$LAUNCH_UI" = "1" ]; then
     PROFILE_ARGS=(--profile ui)
@@ -265,13 +256,24 @@ else
     PROFILE_ARGS=()
 fi
 
+# Cleanup previous containers to avoid name conflicts
+echo "🧹 Cleaning up previous containers..."
+docker compose down --remove-orphans >/dev/null 2>&1 || true
+docker rm -f vllm-server >/dev/null 2>&1 || true
+docker rm -f open-webui >/dev/null 2>&1 || true
+
 # Pull Docker images
 echo "📦 Pulling Docker images..."
 docker compose "${PROFILE_ARGS[@]}" pull
 
 # Pre-download model
 echo "📥 Downloading model '$MODEL'..."
-docker compose run --rm vllm python3 -c "from huggingface_hub import snapshot_download; snapshot_download('$MODEL')"
+# Pass HF_TOKEN explicitly if available
+if [ -n "$HF_TOKEN" ]; then
+    docker compose run --rm -e HF_TOKEN="$HF_TOKEN" vllm python3 -c "from huggingface_hub import snapshot_download; snapshot_download('$MODEL')"
+else
+    docker compose run --rm vllm python3 -c "from huggingface_hub import snapshot_download; snapshot_download('$MODEL')"
+fi
 
 # Start services
 echo ""
