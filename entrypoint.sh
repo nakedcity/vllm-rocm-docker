@@ -4,21 +4,6 @@ set -euo pipefail
 echo "🔧 vLLM ROCm Entrypoint"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# Apply gfx1201 patch if needed
-if [ "${IS_GFX1201:-0}" = "1" ]; then
-    echo "🔧 Applying gfx1201 patch for aiter library..."
-    echo "DEBUG: PYTHON_PATCH_SCRIPT='${PYTHON_PATCH_SCRIPT:-/patch_gfx1201.py}'"
-    ls -la "${PYTHON_PATCH_SCRIPT:-/patch_gfx1201.py}" || echo "⚠️  File not found via ls"
-    
-    if [ -f "${PYTHON_PATCH_SCRIPT:-/patch_gfx1201.py}" ]; then
-        python3 "${PYTHON_PATCH_SCRIPT:-/patch_gfx1201.py}" || {
-            echo "⚠️  Warning: Failed to apply gfx1201 patch, continuing anyway..."
-        }
-    else
-        echo "⚠️  Warning: Patch script not found, skipping patch"
-    fi
-fi
-
 # Export critical ROCm environment variables
 echo "🔧 Configuring ROCm environment..."
 export HSA_OVERRIDE_GFX_VERSION="${HSA_OVERRIDE_GFX_VERSION:-12.0.1}"

@@ -8,7 +8,6 @@ services:
     volumes:
       - ~/.cache/huggingface:/root/.cache/huggingface
       - ./entrypoint.sh:/usr/local/bin/custom_entrypoint.sh
-      - ./patch_gfx1201.py:/patch_gfx1201.py
     
     # Required for ROCm GPU access
     privileged: true
@@ -16,8 +15,8 @@ services:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri
     group_add:
-      - video
-      - render
+      - "44"   # video
+      - "992"  # render
     
     # Environment variables
     environment:
@@ -35,8 +34,6 @@ services:
       - PYTORCH_ALLOC_CONF=${PYTORCH_ALLOC_CONF}
       
       # ROCm/gfx1201 configuration
-      - IS_GFX1201=${IS_GFX1201}
-      - PYTHON_PATCH_SCRIPT=${PYTHON_PATCH_SCRIPT}
       - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION}
       - GPU_ARCHS=${GPU_ARCHS}
       - HSA_ENABLE_SDMA=${HSA_ENABLE_SDMA}

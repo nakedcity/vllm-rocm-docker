@@ -22,7 +22,7 @@ ROCm-optimized vLLM server for AMD GPUs with automatic configuration and intelli
 - Supported architectures: gfx1201 (RDNA 4), gfx1100 (RDNA 3), gfx1030 (RDNA 2), gfx90a (CDNA 2)
 
 **Docker Images** (pinned versions for stability):
-- vLLM: `rocm/vllm:rocm7.0.0_vllm_0.11.2_20251210` (ROCm 7.0.0, vLLM 0.11.2)
+- vLLM: `rocm/vllm:rocm7.12.0_gfx120X-all_ubuntu24.04_py3.12_pytorch_2.9.1_vllm_0.16.0` (ROCm 7.12.0, vLLM 0.16.0)
 - Open WebUI: `ghcr.io/open-webui/open-webui:v0.4.5`
 
 ## Configuration
@@ -108,14 +108,12 @@ docker system prune -f
 ## Architecture
 
 - `run.sh` - Main launcher with ROCm configuration
-- `entrypoint.sh` - Docker entrypoint with gfx1201 patching
-- `patch_gfx1201.py` - Python script to patch aiter for gfx1201 support
+- `entrypoint.sh` - Docker entrypoint
 - `docker-compose.yml` - Service definitions
 
 ## ROCm Optimizations
 
 - HSA version auto-configured per GPU
 - V1 engine disabled for stability
-- Automatic aiter library patching for gfx1201
 - Triton AWQ optimization enabled for AWQ models
 - Optimized attention backend (ROCM_ATTN)
