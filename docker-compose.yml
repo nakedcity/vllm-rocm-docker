@@ -1,9 +1,9 @@
 services:
   vllm:
-    image: ${VLLM_IMAGE:-rocm/vllm:rocm7.0.0_vllm_0.11.2_20251210}
+    image: ${VLLM_IMAGE:-rocm/vllm:rocm7.12.0_gfx120X-all_ubuntu24.04_py3.12_pytorch_2.9.1_vllm_0.16.0}
     container_name: vllm-server
     restart: unless-stopped
-    command: ["/usr/local/bin/custom_entrypoint.sh"]
+    entrypoint: ["/usr/local/bin/custom_entrypoint.sh"]
     
     volumes:
       - ~/.cache/huggingface:/root/.cache/huggingface
@@ -43,14 +43,10 @@ services:
       - NCCL_P2P_DISABLE=${NCCL_P2P_DISABLE}
       - NCCL_IB_DISABLE=${NCCL_IB_DISABLE}
       - VLLM_ROCM_USE_AITER=${VLLM_ROCM_USE_AITER}
-      - VLLM_ROCM_CUSTOM_PAGED_ATTN=${VLLM_ROCM_CUSTOM_PAGED_ATTN}
       - VLLM_USE_TRITON_AWQ=${VLLM_USE_TRITON_AWQ}
-      
-      # vLLM engine configuration
-      - VLLM_ENABLE_V1_MULTIPROCESSING=${VLLM_ENABLE_V1_MULTIPROCESSING}
-      - VLLM_USE_V1=${VLLM_USE_V1}
-      - VLLM_ATTENTION_BACKEND=${VLLM_ATTENTION_BACKEND}
-      - VLLM_DISTRIBUTED_EXECUTOR_BACKEND=${VLLM_DISTRIBUTED_EXECUTOR_BACKEND}
+
+      # Tool calling
+      - TOOL_CALL_PARSER=${TOOL_CALL_PARSER:-}
       
       # Optional: Hugging Face token for private models
       - HF_TOKEN=${HF_TOKEN:-}
@@ -74,7 +70,7 @@ services:
       retries: 3
 
   open-webui:
-    image: ghcr.io/open-webui/open-webui:v0.4.5
+    image: ${OPEN_WEBUI_IMAGE:-ghcr.io/open-webui/open-webui:v0.4.5}
     container_name: open-webui
     restart: unless-stopped
     

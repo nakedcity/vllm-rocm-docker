@@ -24,6 +24,9 @@ OPTIONS:
   --dtype TYPE            Model dtype: auto, float16, bfloat16 (Current: $DTYPE)
   --gpu-memory FRACTION   GPU memory utilization 0.0-1.0 (Current: $GPU_MEMORY_UTILIZATION)
   --max-model-len LENGTH  Maximum context length (Current: $MAX_MODEL_LEN)
+  --tool-parser PARSER    Enable auto tool choice with parser (Current: $TOOL_CALL_PARSER)
+                          Common: pythonic, hermes, mistral, llama3_json, granite
+                          Pass empty string to disable.
   --architecture ARCH     GPU architecture preset (default: gfx1201)
                           Options: gfx1201, gfx1100, gfx1030, gfx90a
   --multi-gpu             Enable multi-GPU support (uses all available GPUs)
@@ -77,6 +80,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --max-model-len)
             MAX_MODEL_LEN="$2"
+            shift 2
+            ;;
+        --tool-parser)
+            TOOL_CALL_PARSER="$2"
             shift 2
             ;;
         --architecture)
@@ -225,15 +232,11 @@ HSA_ENABLE_SDMA=$HSA_ENABLE_SDMA
 NCCL_P2P_DISABLE=$NCCL_P2P_DISABLE
 NCCL_IB_DISABLE=$NCCL_IB_DISABLE
 VLLM_ROCM_USE_AITER=$VLLM_ROCM_USE_AITER
-VLLM_ROCM_CUSTOM_PAGED_ATTN=$VLLM_ROCM_CUSTOM_PAGED_ATTN
 HIP_FORCE_DEV_KERNARG=$HIP_FORCE_DEV_KERNARG
 
 # vLLM Engine
-VLLM_ENABLE_V1_MULTIPROCESSING=$VLLM_ENABLE_V1_MULTIPROCESSING
-VLLM_USE_V1=$VLLM_USE_V1
-VLLM_ATTENTION_BACKEND=$VLLM_ATTENTION_BACKEND
-VLLM_DISTRIBUTED_EXECUTOR_BACKEND=$VLLM_DISTRIBUTED_EXECUTOR_BACKEND
 VLLM_USE_TRITON_AWQ=$VLLM_USE_TRITON_AWQ
+TOOL_CALL_PARSER=$TOOL_CALL_PARSER
 
 # Hardware
 HIP_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
@@ -255,18 +258,22 @@ echo "🧹 Cleaning up previous containers..."
 docker compose down --remove-orphans >/dev/null 2>&1 || true
 docker rm -f vllm-server >/dev/null 2>&1 || true
 docker rm -f open-webui >/dev/null 2>&1 || true
+# Stop Docker model runner to free GPU VRAM
+docker stop docker-model-runner >/dev/null 2>&1 || true
 
 # Pull Docker images
 echo "📦 Pulling Docker images..."
 docker compose "${PROFILE_ARGS[@]}" pull
 
 # Pre-download model
+# NOTE: override --entrypoint, otherwise the compose `entrypoint:` runs the
+# custom vLLM launcher and ignores the python command (= boots a server here
+# without published ports instead of downloading and exiting).
 echo "📥 Downloading model '$MODEL'..."
-# Pass HF_TOKEN explicitly if available
 if [ -n "$HF_TOKEN" ]; then
-    docker compose run --rm -e HF_TOKEN="$HF_TOKEN" vllm python3 -c "from huggingface_hub import snapshot_download; snapshot_download('$MODEL')"
+    docker compose run --rm --entrypoint python3 -e HF_TOKEN="$HF_TOKEN" vllm -c "from huggingface_hub import snapshot_download; snapshot_download('$MODEL')"
 else
-    docker compose run --rm vllm python3 -c "from huggingface_hub import snapshot_download; snapshot_download('$MODEL')"
+    docker compose run --rm --entrypoint python3 vllm -c "from huggingface_hub import snapshot_download; snapshot_download('$MODEL')"
 fi
 
 # Start services

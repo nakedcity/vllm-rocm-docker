@@ -10,8 +10,6 @@ export HSA_OVERRIDE_GFX_VERSION="${HSA_OVERRIDE_GFX_VERSION:-12.0.1}"
 export HSA_ENABLE_SDMA="${HSA_ENABLE_SDMA:-0}"
 export HIP_VISIBLE_DEVICES="${HIP_VISIBLE_DEVICES:-0}"
 export HIP_FORCE_DEV_KERNARG="${HIP_FORCE_DEV_KERNARG:-1}"
-export VLLM_ENABLE_V1_MULTIPROCESSING=0
-export VLLM_USE_V1=0
 
 # Display environment for debugging
 echo "🔍 ROCm Environment Variables:"
@@ -36,22 +34,16 @@ echo "   Port: $PORT"
 echo "   GPU Memory Utilization: ${GPU_MEMORY_UTILIZATION:-0.55}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-
 VLLM_ARGS=(
-    --model "$MODEL"
+    "$MODEL"
     --host 0.0.0.0
     --port "$PORT"
-    --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION:-0.55}"
+    --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION:-0.80}"
     --max-num-seqs "${MAX_NUM_SEQS:-64}"
     --max-num-batched-tokens "${MAX_NUM_BATCHED_TOKENS:-2048}"
     --max-model-len "${MAX_MODEL_LEN:-8192}"
     --enforce-eager
 )
-
-# Add optional arguments
-if [ -n "${VLLM_DISTRIBUTED_EXECUTOR_BACKEND:-}" ]; then
-    VLLM_ARGS+=(--distributed-executor-backend "$VLLM_DISTRIBUTED_EXECUTOR_BACKEND")
-fi
 
 if [ -n "${QUANTIZATION:-}" ] && [ "$QUANTIZATION" != "none" ]; then
     VLLM_ARGS+=(--quantization "$QUANTIZATION")
@@ -61,5 +53,10 @@ if [ -n "${DTYPE:-}" ]; then
     VLLM_ARGS+=(--dtype "$DTYPE")
 fi
 
+if [ -n "${TOOL_CALL_PARSER:-}" ]; then
+    echo "🛠  Enabling auto tool choice (parser: $TOOL_CALL_PARSER)"
+    VLLM_ARGS+=(--enable-auto-tool-choice --tool-call-parser "$TOOL_CALL_PARSER")
+fi
+
 # Execute vLLM server (replace shell process)
-exec python3 -m vllm.entrypoints.openai.api_server "${VLLM_ARGS[@]}"
+exec vllm serve "${VLLM_ARGS[@]}"
