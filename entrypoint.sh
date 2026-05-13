@@ -58,5 +58,10 @@ if [ -n "${TOOL_CALL_PARSER:-}" ]; then
     VLLM_ARGS+=(--enable-auto-tool-choice --tool-call-parser "$TOOL_CALL_PARSER")
 fi
 
+if [ -n "${REASONING_PARSER:-}" ]; then
+    echo "🧠 Enabling reasoning parser: $REASONING_PARSER"
+    VLLM_ARGS+=(--reasoning-parser "$REASONING_PARSER")
+fi
+
 # Execute vLLM server (replace shell process)
 exec vllm serve "${VLLM_ARGS[@]}"

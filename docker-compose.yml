@@ -47,6 +47,9 @@ services:
 
       # Tool calling
       - TOOL_CALL_PARSER=${TOOL_CALL_PARSER:-}
+
+      # Reasoning channel parser (routes CoT to reasoning_content)
+      - REASONING_PARSER=${REASONING_PARSER:-}
       
       # Optional: Hugging Face token for private models
       - HF_TOKEN=${HF_TOKEN:-}

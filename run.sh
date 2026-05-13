@@ -27,6 +27,9 @@ OPTIONS:
   --tool-parser PARSER    Enable auto tool choice with parser (Current: $TOOL_CALL_PARSER)
                           Common: pythonic, hermes, mistral, llama3_json, granite
                           Pass empty string to disable.
+  --reasoning-parser P    Reasoning parser to strip CoT tags (Current: $REASONING_PARSER)
+                          Common: gemma4, openai_gptoss, deepseek_r1, qwen3, granite
+                          Pass empty string to disable.
   --architecture ARCH     GPU architecture preset (default: gfx1201)
                           Options: gfx1201, gfx1100, gfx1030, gfx90a
   --multi-gpu             Enable multi-GPU support (uses all available GPUs)
@@ -84,6 +87,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --tool-parser)
             TOOL_CALL_PARSER="$2"
+            shift 2
+            ;;
+        --reasoning-parser)
+            REASONING_PARSER="$2"
             shift 2
             ;;
         --architecture)
@@ -237,6 +244,7 @@ HIP_FORCE_DEV_KERNARG=$HIP_FORCE_DEV_KERNARG
 # vLLM Engine
 VLLM_USE_TRITON_AWQ=$VLLM_USE_TRITON_AWQ
 TOOL_CALL_PARSER=$TOOL_CALL_PARSER
+REASONING_PARSER=$REASONING_PARSER
 
 # Hardware
 HIP_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
